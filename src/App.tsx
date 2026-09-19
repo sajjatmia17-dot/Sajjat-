@@ -1,0 +1,733 @@
+import React, { useState, useEffect, useCallback } from "react";
+import { onAuthStateChanged } from "firebase/auth";
+import { Header } from "./components/Header";
+import { Sidebar } from "./components/Sidebar";
+import { ChatArea } from "./components/ChatArea";
+import { ChatInput } from "./components/ChatInput";
+import { AuthModal } from "./components/AuthModal";
+import { ProfileModal } from "./components/ProfileModal";
+import { PrivacyModal } from "./components/PrivacyModal";
+import { SettingsModal } from "./components/SettingsModal";
+import { HelpModal } from "./components/HelpModal";
+import { DeleteConfirmModal } from "./components/DeleteConfirmModal";
+import { AdminLoginModal } from "./components/AdminLoginModal";
+import { AdminPanel } from "./components/AdminPanel";
+import { NotificationsModal } from "./components/NotificationsModal";
+import { BookViewerModal } from "./components/BookViewerModal";
+import { ImageGeneratorModal } from "./components/ImageGeneratorModal";
+import { HtmlViewerModal } from "./components/HtmlViewerModal";
+import { LiveVoiceModal } from "./components/LiveVoiceModal";
+import { 
+  UserProfile, 
+  ChatSession, 
+  ChatMessage, 
+  ModalType, 
+  AttachedFile, 
+  GeminiModelId,
+  AppNotification,
+  AppContentConfig
+} from "./types";
+import { 
+  auth, 
+  getUserProfile, 
+  logoutUser, 
+  saveUserChatSession, 
+  subscribeToUserChats, 
+  deleteUserChatSession,
+  subscribeToNotifications,
+  subscribeToAppContent,
+  subscribeToAdminAISettings,
+  subscribeToBooks,
+  isAdmin
+} from "./firebase";
+import { getPersonalAnswer, generateClientFallbackReply } from "./knowledge";
+import { sendChatMessage } from "./api";
+import { 
+  safeGetGuestSessions, 
+  safeSaveGuestSessions, 
+  safeClearGuestSessions 
+} from "./storage";
+import { searchBooks, isBookSearchQuery, formatBookSearchResponse } from "./utils/bookSearch";
+import { BookItem } from "./types";
+
+export default function App() {
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
+  const [modalType, setModalType] = useState<ModalType>("none");
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  
+  // Admin Panel State
+  const [isAdminViewOpen, setIsAdminViewOpen] = useState<boolean>(false);
+
+  // Live Firebase Notifications & Content
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [appContent, setAppContent] = useState<AppContentConfig | null>(null);
+  const [availableBooks, setAvailableBooks] = useState<BookItem[]>([]);
+
+  // Sajjat AI Model Preference (uses real gemini models under the hood, default: gemini-3.8-flash)
+  const [selectedModel, setSelectedModel] = useState<GeminiModelId>(() => {
+    try {
+      const saved = localStorage.getItem("sajjat_ai_model");
+      if (saved && (saved === "gemini-3.1-flash-lite" || saved === "gemini-3.8-flash" || saved === "gemini-flash-latest")) {
+        return saved as GeminiModelId;
+      }
+    } catch (e) {}
+    return "gemini-3.8-flash";
+  });
+
+  // Modal states for deleting chats
+  const [deleteModalState, setDeleteModalState] = useState<{
+    isOpen: boolean;
+    type: "single" | "all" | "active";
+    sessionId?: string;
+    title: string;
+    description: string;
+  }>({
+    isOpen: false,
+    type: "single",
+    title: "",
+    description: "",
+  });
+
+  const [lastUserMessage, setLastUserMessage] = useState<{
+    text: string;
+    attachedFile?: AttachedFile;
+  } | null>(null);
+
+  // Persist model selection
+  const handleSelectModel = useCallback((modelId: GeminiModelId) => {
+    setSelectedModel(modelId);
+    try {
+      localStorage.setItem("sajjat_ai_model", modelId);
+    } catch (e) {}
+  }, []);
+
+  // 1. Firebase Auth State Listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        const profile = await getUserProfile(firebaseUser.uid);
+        if (profile) {
+          setUser(profile);
+        } else {
+          setUser({
+            uid: firebaseUser.uid,
+            email: firebaseUser.email || "",
+            displayName: firebaseUser.displayName || firebaseUser.email?.split("@")[0] || "User",
+            bio: "Sajjat AI এর একজন নিয়মিত ব্যবহারকারী।",
+            createdAt: new Date().toISOString(),
+            lastLoginAt: new Date().toISOString()
+          });
+        }
+      } else {
+        setUser(null);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // 2. Subscribe to Firebase RTDB Chat Sessions when user logs in
+  useEffect(() => {
+    if (user?.uid) {
+      const unsubscribe = subscribeToUserChats(user.uid, (loadedSessions) => {
+        setSessions(loadedSessions);
+        if (loadedSessions.length > 0 && !activeSessionId) {
+          setActiveSessionId(loadedSessions[0].id);
+        }
+      });
+      return () => unsubscribe();
+    } else {
+      // Guest local storage session safely retrieved
+      const guestSessions = safeGetGuestSessions();
+      setSessions(guestSessions);
+      if (guestSessions.length > 0 && !activeSessionId) {
+        setActiveSessionId(guestSessions[0].id);
+      } else if (guestSessions.length === 0) {
+        setActiveSessionId(null);
+      }
+    }
+  }, [user?.uid]);
+
+  // 3. Subscribe to Realtime Notifications
+  useEffect(() => {
+    const unsubscribe = subscribeToNotifications((notifs) => {
+      setNotifications(notifs);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // 4. Subscribe to App Content & AI Settings from Admin
+  useEffect(() => {
+    const unsubContent = subscribeToAppContent((content) => {
+      if (content) setAppContent(content);
+    });
+    const unsubAi = subscribeToAdminAISettings((aiSettings) => {
+      if (aiSettings?.defaultModel) {
+        // Only set default if user hasn't chosen one
+        const userExplicit = localStorage.getItem("sajjat_ai_model");
+        if (!userExplicit) {
+          setSelectedModel(aiSettings.defaultModel);
+        }
+      }
+    });
+
+    const unsubBooks = subscribeToBooks((booksList) => {
+      setAvailableBooks(booksList || []);
+    });
+
+    return () => {
+      unsubContent();
+      unsubAi();
+      unsubBooks();
+    };
+  }, []);
+
+  // Calculate unread notification count
+  const unreadNotifCount = notifications.filter((notif) => {
+    if (notif.target === "all") {
+      if (!user) return true;
+      return !notif.readBy || !notif.readBy[user.uid];
+    }
+    if (user && notif.target === "user") {
+      const isTarget = notif.targetUserId === user.uid || notif.targetUserEmail?.toLowerCase() === user.email.toLowerCase();
+      return isTarget && (!notif.readBy || !notif.readBy[user.uid]);
+    }
+    return false;
+  }).length;
+
+  // Helper to get active session
+  const activeSession = sessions.find((s) => s.id === activeSessionId) || (sessions.length > 0 && !activeSessionId ? sessions[0] : null);
+  const activeMessages = activeSession ? activeSession.messages : [];
+
+  // Create new Chat Session
+  const handleNewChat = useCallback(() => {
+    const newSessionId = `session_${Date.now()}`;
+    const newSession: ChatSession = {
+      id: newSessionId,
+      title: "নতুন কথোপকথন",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      messages: [],
+    };
+
+    setSessions((prev) => {
+      const updated = [newSession, ...prev];
+      if (user?.uid) {
+        saveUserChatSession(user.uid, newSession);
+      } else {
+        safeSaveGuestSessions(updated);
+      }
+      return updated;
+    });
+    setActiveSessionId(newSessionId);
+  }, [user?.uid]);
+
+  // Request Delete single session from sidebar
+  const promptDeleteSession = useCallback((sessionId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const target = sessions.find((s) => s.id === sessionId);
+    setDeleteModalState({
+      isOpen: true,
+      type: "single",
+      sessionId,
+      title: `"${target?.title || "এই চ্যাটটি"}" মুছে ফেলতে চান?`,
+      description: "এই চ্যাটের সমস্ত বার্তা মুছে যাবে এবং এটি আর ফিরে পাওয়া যাবে না।",
+    });
+  }, [sessions]);
+
+  // Request Clear All Sessions (🗑️ Clear Chat)
+  const promptClearAllSessions = useCallback(() => {
+    setDeleteModalState({
+      isOpen: true,
+      type: "all",
+      title: "সব চ্যাট হিস্টোরি মুছে ফেলতে চান?",
+      description: "আপনার সমস্ত সংরক্ষিত চ্যাট ও মেসেজ স্থায়ীভাবে মুছে যাবে।",
+    });
+  }, []);
+
+  // Request Clear Active Chat
+  const promptClearActiveChat = useCallback(() => {
+    if (!activeSessionId) return;
+    setDeleteModalState({
+      isOpen: true,
+      type: "active",
+      sessionId: activeSessionId,
+      title: "বর্তমান কথোপকথন মুছে ফেলবেন?",
+      description: "বর্তমান চ্যাটের সব মেসেজ মুছে নতুন করে শুরু করা হবে।",
+    });
+  }, [activeSessionId]);
+
+  // Execute Confirmed Delete
+  const handleConfirmDelete = useCallback(() => {
+    if (deleteModalState.type === "single" && deleteModalState.sessionId) {
+      const sId = deleteModalState.sessionId;
+      if (user?.uid) {
+        deleteUserChatSession(user.uid, sId);
+      }
+      setSessions((prev) => {
+        const updated = prev.filter((s) => s.id !== sId);
+        if (!user?.uid) safeSaveGuestSessions(updated);
+        return updated;
+      });
+      if (activeSessionId === sId) {
+        const remaining = sessions.filter((s) => s.id !== sId);
+        setActiveSessionId(remaining.length > 0 ? remaining[0].id : null);
+      }
+    } else if (deleteModalState.type === "all") {
+      if (user?.uid) {
+        sessions.forEach((s) => deleteUserChatSession(user.uid, s.id));
+      }
+      setSessions([]);
+      setActiveSessionId(null);
+      safeClearGuestSessions();
+    } else if (deleteModalState.type === "active" && activeSessionId) {
+      // Clear messages of current session
+      const updated = sessions.map((s) => {
+        if (s.id === activeSessionId) {
+          return { ...s, messages: [], updatedAt: Date.now() };
+        }
+        return s;
+      });
+      setSessions(updated);
+      if (user?.uid) {
+        const target = updated.find((s) => s.id === activeSessionId);
+        if (target) saveUserChatSession(user.uid, target);
+      } else {
+        safeSaveGuestSessions(updated);
+      }
+    }
+  }, [deleteModalState, user?.uid, sessions, activeSessionId]);
+
+  // Delete an individual message inside active chat
+  const handleDeleteMessage = useCallback((messageId: string) => {
+    if (!activeSessionId) return;
+
+    setSessions((prev) => {
+      const updated = prev.map((session) => {
+        if (session.id === activeSessionId) {
+          const newMessages = session.messages.filter((m) => m.id !== messageId);
+          const updatedSession = { ...session, messages: newMessages, updatedAt: Date.now() };
+          if (user?.uid) {
+            saveUserChatSession(user.uid, updatedSession);
+          }
+          return updatedSession;
+        }
+        return session;
+      });
+
+      if (!user?.uid) {
+        safeSaveGuestSessions(updated);
+      }
+      return updated;
+    });
+  }, [activeSessionId, user?.uid]);
+
+  // Send Message Logic
+  const handleSendMessage = async (
+    text: string,
+    attachedFile?: AttachedFile
+  ) => {
+    if (!text.trim() && !attachedFile) return;
+
+    setLastUserMessage({ text, attachedFile });
+
+    const userMessage: ChatMessage = {
+      id: `msg_${Date.now()}_u`,
+      sender: "user",
+      text,
+      attachedFile,
+      imageBase64: attachedFile?.isImage ? attachedFile.base64 : undefined,
+      imageMimeType: attachedFile?.isImage ? attachedFile.type : undefined,
+      timestamp: Date.now(),
+      status: "sent",
+    };
+
+    // Ensure we have an active session ID
+    let currentSessionId = activeSessionId;
+    let targetSession = sessions.find((s) => s.id === currentSessionId);
+
+    if (!targetSession) {
+      currentSessionId = `session_${Date.now()}`;
+      targetSession = {
+        id: currentSessionId,
+        title: text ? (text.length > 25 ? text.substring(0, 25) + "..." : text) : (attachedFile ? attachedFile.name : "নতুন চ্যাট"),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        messages: [],
+      };
+      setActiveSessionId(currentSessionId);
+    } else if (targetSession.messages.length === 0) {
+      targetSession = {
+        ...targetSession,
+        title: text ? (text.length > 25 ? text.substring(0, 25) + "..." : text) : (attachedFile ? attachedFile.name : "নতুন চ্যাট"),
+      };
+    }
+
+    // Add user message to session
+    const updatedMessages = [...targetSession.messages, userMessage];
+    const updatedSession: ChatSession = {
+      ...targetSession,
+      updatedAt: Date.now(),
+      messages: updatedMessages,
+    };
+
+    // Atomic update to sessions state
+    setSessions((prev) => {
+      const exists = prev.some((s) => s.id === currentSessionId);
+      const list = exists
+        ? prev.map((s) => (s.id === currentSessionId ? updatedSession : s))
+        : [updatedSession, ...prev];
+      if (user?.uid) {
+        saveUserChatSession(user.uid, updatedSession);
+      } else {
+        safeSaveGuestSessions(list);
+      }
+      return list;
+    });
+
+    const finishWithBotMessage = (botMessage: ChatMessage) => {
+      const finalMessages = [...updatedMessages, botMessage];
+      const finalSession: ChatSession = {
+        ...updatedSession,
+        updatedAt: Date.now(),
+        messages: finalMessages,
+      };
+
+      setSessions((prev) => {
+        const exists = prev.some((s) => s.id === currentSessionId);
+        const list = exists
+          ? prev.map((s) => (s.id === currentSessionId ? finalSession : s))
+          : [finalSession, ...prev];
+        if (user?.uid) {
+          saveUserChatSession(user.uid, finalSession);
+        } else {
+          safeSaveGuestSessions(list);
+        }
+        return list;
+      });
+    };
+
+    // 1. Check Verified Personal QA Engine (if no attached file)
+    const personalAns = getPersonalAnswer(text);
+    if (personalAns && !attachedFile) {
+      finishWithBotMessage({
+        id: `msg_${Date.now()}_b`,
+        sender: "bot",
+        text: personalAns,
+        timestamp: Date.now(),
+        status: "sent",
+        model: "Sajjat AI Verified",
+        isPersonalQA: true,
+      });
+      return;
+    }
+
+    // 2. Check Book / PDF Library Search in Chat (যখন ইউজাররা বই খুঁজবে)
+    if (!attachedFile && isBookSearchQuery(text)) {
+      const matchedBooks = searchBooks(text, availableBooks);
+      if (matchedBooks.length > 0) {
+        const bookResponseText = formatBookSearchResponse(matchedBooks, text);
+        finishWithBotMessage({
+          id: `msg_${Date.now()}_b`,
+          sender: "bot",
+          text: bookResponseText,
+          timestamp: Date.now(),
+          status: "sent",
+          model: "Sajjat AI Library",
+          isBookSearch: true,
+          bookResults: matchedBooks,
+        });
+        return;
+      }
+    }
+
+    // 3. Call Real Gemini AI Server API with selected model (under-the-hood)
+    setIsLoading(true);
+    try {
+      const response = await sendChatMessage({
+        message: text,
+        history: updatedMessages,
+        attachedFile,
+        model: selectedModel,
+      });
+
+      finishWithBotMessage({
+        id: `msg_${Date.now()}_b`,
+        sender: "bot",
+        text: response.reply,
+        timestamp: Date.now(),
+        status: "sent",
+        model: response.model ? response.model.replace("Gemini ", "Sajjat AI ") : "Sajjat AI",
+        generatedImageUrl: response.generatedImageUrl,
+        generatedImagePrompt: response.generatedImagePrompt,
+      });
+    } catch (error: any) {
+      console.warn("AI API Error, applying offline fallback:", error);
+      const fallbackReply = generateClientFallbackReply(text, attachedFile?.name);
+      finishWithBotMessage({
+        id: `msg_${Date.now()}_fb`,
+        sender: "bot",
+        text: fallbackReply,
+        timestamp: Date.now(),
+        status: "sent",
+        model: "Sajjat AI Neural Core",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Add voice exchange from Live Voice call into the chat session
+  const handleAddExchangeToChat = useCallback((userText: string, aiReply: string) => {
+    let currentSessionId = activeSessionId;
+    let targetSession = sessions.find((s) => s.id === currentSessionId);
+    if (!targetSession) {
+      currentSessionId = `session_${Date.now()}`;
+      targetSession = {
+        id: currentSessionId,
+        title: userText ? (userText.length > 25 ? userText.substring(0, 25) + "..." : userText) : "ভয়েস চ্যাট",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        messages: [],
+      };
+      setActiveSessionId(currentSessionId);
+    }
+    const uMsg: ChatMessage = {
+      id: `voice_u_${Date.now()}`,
+      sender: "user",
+      text: userText,
+      timestamp: Date.now(),
+      status: "sent"
+    };
+    const bMsg: ChatMessage = {
+      id: `voice_b_${Date.now()}`,
+      sender: "bot",
+      text: aiReply,
+      timestamp: Date.now() + 50,
+      status: "sent",
+      model: selectedModel
+    };
+    setSessions((prev) => {
+      const exists = prev.some((s) => s.id === currentSessionId);
+      const updated = exists
+        ? prev.map((s) =>
+            s.id === currentSessionId
+              ? { ...s, messages: [...s.messages, uMsg, bMsg], updatedAt: Date.now() }
+              : s
+          )
+        : [{ ...targetSession!, messages: [uMsg, bMsg] }, ...prev];
+      if (user?.uid) {
+        const toSave = updated.find((s) => s.id === currentSessionId);
+        if (toSave) saveUserChatSession(user.uid, toSave);
+      } else {
+        safeSaveGuestSessions(updated);
+      }
+      return updated;
+    });
+  }, [activeSessionId, sessions, selectedModel, user?.uid]);
+
+  const handleRetry = () => {
+    if (lastUserMessage) {
+      handleSendMessage(lastUserMessage.text, lastUserMessage.attachedFile);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logoutUser();
+      setUser(null);
+      setSessions([]);
+      setActiveSessionId(null);
+      setIsAdminViewOpen(false);
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
+  };
+
+  const toggleTheme = () => {
+    setTheme((prev) => (prev === "dark" ? "light" : "dark"));
+  };
+
+  // 7-Tap Handler from Logo
+  const handleOpenAdminTrigger = () => {
+    if (user && isAdmin(user.email)) {
+      setIsAdminViewOpen(true);
+    } else {
+      setModalType("admin_login");
+    }
+  };
+
+  return (
+    <div
+      className={`min-h-screen flex flex-col ${
+        theme === "dark" ? "bg-slate-950 text-slate-100" : "bg-slate-100 text-slate-900"
+      }`}
+    >
+      {/* Header with clean Sajjat AI logo and settings trigger & 7-Tap Admin Access */}
+      <Header
+        user={user}
+        unreadNotifCount={unreadNotifCount}
+        onOpenModal={(type) => setModalType(type)}
+        onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
+        onNewChat={handleNewChat}
+        onOpenAdmin={handleOpenAdminTrigger}
+      />
+
+      {/* Main Body */}
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* Left ☰ Sidebar / Drawer Menu */}
+        <Sidebar
+          isOpen={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          sessions={sessions}
+          activeSessionId={activeSessionId}
+          onSelectSession={(id) => setActiveSessionId(id)}
+          onNewChat={handleNewChat}
+          onDeleteSession={promptDeleteSession}
+          onClearAllSessions={promptClearAllSessions}
+          user={user}
+          onOpenModal={(type) => setModalType(type)}
+        />
+
+        {/* Chat Area & Input */}
+        <main className="flex-1 flex flex-col h-[calc(100vh-3.75rem)] overflow-hidden">
+          <ChatArea
+            messages={activeMessages}
+            isLoading={isLoading}
+            onSendPrompt={(prompt) => handleSendMessage(prompt)}
+            onRetry={handleRetry}
+            onOpenModal={(type) => setModalType(type)}
+            user={user}
+            onDeleteMessage={handleDeleteMessage}
+            onClearActiveChat={promptClearActiveChat}
+            selectedModel={selectedModel}
+            activeSessionTitle={activeSession?.title}
+          />
+
+          <ChatInput
+            onSendMessage={handleSendMessage}
+            isLoading={isLoading}
+            onOpenImageGenerator={() => setModalType("image_generator")}
+            onOpenLiveVoice={() => setModalType("live_voice")}
+          />
+        </main>
+      </div>
+
+      {/* AI Image Generator Modal */}
+      <ImageGeneratorModal
+        isOpen={modalType === "image_generator"}
+        onClose={() => setModalType("none")}
+        onSendToChat={(promptText) => {
+          handleSendMessage(promptText);
+        }}
+      />
+
+      {/* Settings Modal (Includes Model Selection & Theme) */}
+      <SettingsModal
+        isOpen={modalType === "settings"}
+        onClose={() => setModalType("none")}
+        selectedModel={selectedModel}
+        onSelectModel={handleSelectModel}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        onOpenHtmlViewer={() => setModalType("html_viewer")}
+      />
+
+      {/* Standalone HTML File Viewer & Downloader Modal */}
+      <HtmlViewerModal
+        isOpen={modalType === "html_viewer"}
+        onClose={() => setModalType("none")}
+      />
+
+      {/* 🎙️ Live Voice Assistant / Call with Sajjat AI */}
+      <LiveVoiceModal
+        isOpen={modalType === "live_voice"}
+        onClose={() => setModalType("none")}
+        user={user}
+        onAddExchangeToChat={handleAddExchangeToChat}
+      />
+
+      {/* Notifications Modal */}
+      <NotificationsModal
+        isOpen={modalType === "notifications"}
+        onClose={() => setModalType("none")}
+        notifications={notifications}
+        user={user}
+      />
+
+      {/* Help Center Modal (with dynamic content from Firebase) */}
+      <HelpModal
+        isOpen={modalType === "help"}
+        onClose={() => setModalType("none")}
+        appContent={appContent}
+      />
+
+      {/* Auth Modal */}
+      <AuthModal
+        isOpen={modalType === "auth"}
+        onClose={() => setModalType("none")}
+        onSuccess={(loggedUser) => {
+          setUser(loggedUser);
+          setModalType("none");
+        }}
+      />
+
+      {/* Profile Modal */}
+      <ProfileModal
+        isOpen={modalType === "profile"}
+        onClose={() => setModalType("none")}
+        user={user}
+        onUpdateUser={(updated) => setUser(updated)}
+      />
+
+      {/* Privacy Policy Modal (with dynamic content from Firebase) */}
+      <PrivacyModal
+        isOpen={modalType === "privacy"}
+        onClose={() => setModalType("none")}
+        appContent={appContent}
+      />
+
+      {/* Book & PDF Library Modal */}
+      <BookViewerModal
+        isOpen={modalType === "book_library"}
+        onClose={() => setModalType("none")}
+        onAskAboutBook={(bookName, subject) => {
+          handleSendMessage(`আমি "${bookName}" (${subject}) বইটি সম্পর্কে বিস্তারিত জানতে চাই। বইটির মূল বিষয়বস্তু এবং গুরুত্বপূর্ণ অধ্যায়সমূহ বুঝিয়ে দাও।`);
+        }}
+      />
+
+      {/* Admin Login Modal (Triggered by 7 taps on Sajjat AI logo) */}
+      <AdminLoginModal
+        isOpen={modalType === "admin_login"}
+        onClose={() => setModalType("none")}
+        onSuccess={(adminProfile) => {
+          setUser(adminProfile);
+          setModalType("none");
+          setIsAdminViewOpen(true);
+        }}
+      />
+
+      {/* Complete Full-Screen Admin Panel */}
+      {isAdminViewOpen && user && isAdmin(user.email) && (
+        <AdminPanel
+          adminUser={user}
+          onClose={() => setIsAdminViewOpen(false)}
+          onLogout={handleLogout}
+        />
+      )}
+
+      {/* Delete Confirmation Modal */}
+      <DeleteConfirmModal
+        isOpen={deleteModalState.isOpen}
+        onClose={() => setDeleteModalState((prev) => ({ ...prev, isOpen: false }))}
+        onConfirm={handleConfirmDelete}
+        title={deleteModalState.title}
+        description={deleteModalState.description}
+      />
+    </div>
+  );
+}
