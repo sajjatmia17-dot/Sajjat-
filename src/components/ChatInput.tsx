@@ -12,13 +12,14 @@ import {
   Palette,
   PhoneCall
 } from "lucide-react";
-import { AttachedFile } from "../types";
+import { AttachedFile, SystemSettingsConfig } from "../types";
 
 interface ChatInputProps {
   onSendMessage: (text: string, attachedFile?: AttachedFile) => void;
   isLoading: boolean;
   onOpenImageGenerator?: () => void;
   onOpenLiveVoice?: () => void;
+  systemSettings?: SystemSettingsConfig | null;
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({
@@ -26,6 +27,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   isLoading,
   onOpenImageGenerator,
   onOpenLiveVoice,
+  systemSettings,
 }) => {
   const [text, setText] = useState("");
   const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
@@ -260,6 +262,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           <button
             type="button"
             onClick={() => {
+              if (systemSettings?.imageGenerationEnabled === false) {
+                alert(systemSettings.imageGenerationNotice || "ছবি তৈরির সুবিধাটি সাময়িকভাবে অ্যাডমিন দ্বারা বন্ধ রাখা হয়েছে।");
+                return;
+              }
               if (onOpenImageGenerator) {
                 onOpenImageGenerator();
               } else {
@@ -267,19 +273,41 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 textareaRef.current?.focus();
               }
             }}
-            className="p-2 text-slate-400 hover:text-purple-400 hover:bg-slate-800/80 rounded-xl transition-colors shrink-0"
-            title="Sajjat AI দিয়ে ছবি তৈরি করুন (AI Art Generator)"
+            className={`p-2 rounded-xl transition-colors shrink-0 cursor-pointer ${
+              systemSettings?.imageGenerationEnabled === false
+                ? "text-slate-600 hover:text-slate-500 opacity-60"
+                : "text-slate-400 hover:text-purple-400 hover:bg-slate-800/80"
+            }`}
+            title={
+              systemSettings?.imageGenerationEnabled === false
+                ? "ছবি তৈরি সাময়িকভাবে বন্ধ আছে"
+                : `${systemSettings?.aiBrandName || "Sajjat AI"} দিয়ে ছবি তৈরি করুন (AI Art Generator)`
+            }
           >
-            <Sparkles className="w-4.5 h-4.5 text-purple-400" />
+            <Sparkles className={`w-4.5 h-4.5 ${systemSettings?.imageGenerationEnabled === false ? "text-slate-600" : "text-purple-400"}`} />
           </button>
 
           {/* Live AI Voice Call */}
           {onOpenLiveVoice && (
             <button
               type="button"
-              onClick={onOpenLiveVoice}
-              className="p-2 text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/15 rounded-xl transition-all shrink-0 border border-cyan-500/20 shadow-xs cursor-pointer active:scale-95"
-              title="Sajjat AI-এর সাথে সরাসরি লাইভ ভয়েস চ্যাট / কল করুন"
+              onClick={() => {
+                if (systemSettings?.liveVoiceEnabled === false) {
+                  alert(systemSettings.liveVoiceNotice || "লাইভ ভয়েস চ্যাট সাময়িকভাবে অ্যাডমিন দ্বারা বন্ধ রয়েছে।");
+                  return;
+                }
+                onOpenLiveVoice();
+              }}
+              className={`p-2 rounded-xl transition-all shrink-0 shadow-xs cursor-pointer active:scale-95 border ${
+                systemSettings?.liveVoiceEnabled === false
+                  ? "text-slate-600 border-slate-800 opacity-60 cursor-not-allowed"
+                  : "text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/15 border-cyan-500/20"
+              }`}
+              title={
+                systemSettings?.liveVoiceEnabled === false
+                  ? "লাইভ ভয়েস চ্যাট সাময়িকভাবে বন্ধ রয়েছে"
+                  : `${systemSettings?.aiBrandName || "Sajjat AI"}-এর সাথে সরাসরি লাইভ ভয়েস চ্যাট / কল করুন`
+              }
             >
               <PhoneCall className="w-4.5 h-4.5" />
             </button>
@@ -307,10 +335,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             onKeyDown={handleKeyDown}
             placeholder={
               isListening
-                ? "কথা বলুন... Sajjat AI শুনছে..."
+                ? `কথা বলুন... ${systemSettings?.aiBrandName || "Sajjat AI"} শুনছে...`
                 : attachedFile
                 ? "সংযুক্ত ফাইল সম্পর্কে লিখুন..."
-                : "Sajjat AI-কে যেকোনো প্রশ্ন করুন..."
+                : `${systemSettings?.aiBrandName || "Sajjat AI"}-কে যেকোনো প্রশ্ন করুন...`
             }
             rows={1}
             className="flex-1 max-h-32 bg-transparent text-sm text-slate-100 placeholder-slate-500 focus:outline-none resize-none py-1.5 px-1 scrollbar-thin scrollbar-thumb-slate-800"
@@ -336,7 +364,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         {/* Compact Footer Hints */}
         <div className="flex items-center justify-between text-[10px] text-slate-500 px-1">
           <div className="flex items-center gap-1.5">
-            <span className="text-cyan-400 font-medium">Sajjat AI</span>
+            <span className="text-cyan-400 font-medium">{systemSettings?.aiBrandName || "Sajjat AI"}</span>
             <span>•</span>
             <span>বাংলা ও ইংরেজিতে পারদর্শী</span>
           </div>

@@ -18,13 +18,14 @@ import {
   Wifi,
   WifiOff
 } from "lucide-react";
-import { UserProfile } from "../types";
+import { UserProfile, SystemSettingsConfig } from "../types";
 
 interface LiveVoiceModalProps {
   isOpen: boolean;
   onClose: () => void;
   user: UserProfile | null;
   onAddExchangeToChat?: (userMessage: string, aiReply: string) => void;
+  systemSettings?: SystemSettingsConfig | null;
 }
 
 type LiveCallStatus = "connecting" | "listening" | "speaking" | "muted" | "error" | "closed";
@@ -114,11 +115,18 @@ export const LiveVoiceModal: React.FC<LiveVoiceModalProps> = ({
   onClose,
   user,
   onAddExchangeToChat,
+  systemSettings,
 }) => {
   const [callStatus, setCallStatus] = useState<LiveCallStatus>("connecting");
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [language, setLanguage] = useState<"bn-BD" | "en-US">("bn-BD");
-  const [selectedVoice, setSelectedVoice] = useState<string>("Zephyr");
+  const [selectedVoice, setSelectedVoice] = useState<string>(systemSettings?.liveVoiceName || "Zephyr");
+
+  useEffect(() => {
+    if (systemSettings?.liveVoiceName) {
+      setSelectedVoice(systemSettings.liveVoiceName);
+    }
+  }, [systemSettings?.liveVoiceName]);
   const [showVoicePicker, setShowVoicePicker] = useState<boolean>(false);
   const [callDuration, setCallDuration] = useState<number>(0);
   const [micVolume, setMicVolume] = useState<number>(0);
@@ -331,6 +339,15 @@ export const LiveVoiceModal: React.FC<LiveVoiceModalProps> = ({
   const startLiveSession = useCallback(async () => {
     cleanupAllAudio();
     setErrorMessage("");
+
+    if (systemSettings && systemSettings.liveVoiceEnabled === false) {
+      setErrorMessage(
+        systemSettings.liveVoiceNotice || "লাইভ ভয়েস চ্যাট সাময়িকভাবে অ্যাডমিন কর্তৃক বন্ধ রয়েছে।"
+      );
+      setCallStatus("error");
+      return;
+    }
+
     setCallStatus("connecting");
     setCallDuration(0);
     setLiveTranscript("");
@@ -635,7 +652,7 @@ export const LiveVoiceModal: React.FC<LiveVoiceModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-base font-bold text-white tracking-tight">
-                  Sajjat AI লাইভ ভয়েস
+                  {systemSettings?.aiBrandName || "Sajjat AI"} লাইভ ভয়েস
                 </h3>
                 {callStatus !== "connecting" && callStatus !== "error" && (
                   <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
@@ -922,9 +939,9 @@ export const LiveVoiceModal: React.FC<LiveVoiceModalProps> = ({
               {transcriptHistory.length === 0 ? (
                 <p className="text-center text-slate-500 py-2">এখনও কোনো কথা হয়নি</p>
               ) : (
-                transcriptHistory.map((item) => (
+                transcriptHistory.map((item, idx) => (
                   <div
-                    key={item.id}
+                    key={item.id ? `live_hist_${item.id}` : `live_hist_idx_${idx}`}
                     className={`flex items-start gap-2 ${
                       item.role === "user" ? "text-slate-300" : "text-cyan-300"
                     }`}

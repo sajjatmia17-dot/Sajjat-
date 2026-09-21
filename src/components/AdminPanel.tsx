@@ -35,7 +35,8 @@ import {
   Menu,
   ChevronRight,
   TrendingUp,
-  UserCheck
+  UserCheck,
+  Palette
 } from "lucide-react";
 import { 
   UserProfile, 
@@ -64,6 +65,7 @@ import { AdminBookLibrary } from "./admin/AdminBookLibrary";
 import { AdminApiProviders } from "./admin/AdminApiProviders";
 import { AdminChatManager } from "./admin/AdminChatManager";
 import { AdminVoiceAndFiles } from "./admin/AdminVoiceAndFiles";
+import { AdminBranding } from "./admin/AdminBranding";
 
 interface AdminPanelProps {
   adminUser: UserProfile;
@@ -79,6 +81,7 @@ type AdminTab =
   | "ai_control" 
   | "api_settings" 
   | "voice_files" 
+  | "branding"
   | "content" 
   | "notifications" 
   | "settings";
@@ -177,7 +180,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const unsub = subscribeToAppContent((content) => {
       if (content) {
         setAppContent(content);
-        if (content.helpCenterItems) setHelpItems(content.helpCenterItems);
+        if (content.helpCenterItems) {
+          const sanitized = content.helpCenterItems.map((item: any, i: number) => ({
+            ...item,
+            id: item.id || `help_seed_${i}_${Date.now()}`
+          }));
+          setHelpItems(sanitized);
+        }
         if (content.privacyPolicyIntro) setPrivacyIntro(content.privacyPolicyIntro);
       }
     });
@@ -485,14 +494,36 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
             <button
               onClick={() => { setActiveTab("voice_files"); setMobileMenuOpen(false); }}
-              className={`w-full flex items-center gap-3 px-3.5 py-2 rounded-2xl text-xs font-semibold transition-all ${
+              className={`w-full flex items-center justify-between px-3.5 py-2 rounded-2xl text-xs font-semibold transition-all ${
                 activeTab === "voice_files"
                   ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
                   : "text-slate-300 hover:bg-slate-800 hover:text-white"
               }`}
             >
-              <Sliders className="w-4 h-4 shrink-0 text-teal-400" />
-              <span>🎙️ ভয়েস ও ফাইল আপলোড</span>
+              <div className="flex items-center gap-3">
+                <Sliders className="w-4 h-4 shrink-0 text-teal-400" />
+                <span>🎙️ লাইভ ভয়েস ও ছবি তৈরি</span>
+              </div>
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/30">
+                Live Call & Art
+              </span>
+            </button>
+
+            <button
+              onClick={() => { setActiveTab("branding"); setMobileMenuOpen(false); }}
+              className={`w-full flex items-center justify-between px-3.5 py-2 rounded-2xl text-xs font-semibold transition-all ${
+                activeTab === "branding"
+                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
+                  : "text-slate-300 hover:bg-slate-800 hover:text-white"
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <Palette className="w-4 h-4 shrink-0 text-purple-400" />
+                <span>🎨 ডিজাইন, কালার ও নাম</span>
+              </div>
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-bold border border-purple-500/30">
+                AI Branding
+              </span>
             </button>
 
             <button
@@ -748,9 +779,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </div>
 
                     <div className="space-y-2.5">
-                      {allUsers.slice(0, 5).map((user) => (
+                      {allUsers.slice(0, 5).map((user, uIdx) => (
                         <div
-                          key={user.uid}
+                          key={user.uid ? `recent_user_${user.uid}` : `recent_user_idx_${uIdx}`}
                           className="p-3 rounded-2xl bg-slate-950 border border-slate-800/80 flex items-center justify-between gap-3 hover:border-slate-700 transition-colors"
                         >
                           <div className="flex items-center gap-3 min-w-0">
@@ -792,8 +823,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         {notifications.length === 0 ? (
                           <p className="text-xs text-slate-500 text-center py-6">কোনো নোটিফিকেশন নেই</p>
                         ) : (
-                          notifications.slice(0, 3).map((n) => (
-                            <div key={n.id} className="p-3 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
+                          notifications.slice(0, 3).map((n, nIdx) => (
+                            <div key={n.id ? `recent_n_${n.id}` : `recent_n_idx_${nIdx}`} className="p-3 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
                               <div className="flex items-center justify-between text-[10px]">
                                 <span className="text-indigo-400 font-semibold">{n.title}</span>
                                 <span className="text-slate-500">
@@ -883,8 +914,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             </td>
                           </tr>
                         ) : (
-                          filteredUsers.map((user) => (
-                            <tr key={user.uid} className="hover:bg-slate-800/40 transition-colors">
+                          filteredUsers.map((user, uIdx) => (
+                            <tr key={user.uid ? `user_${user.uid}` : `user_idx_${uIdx}`} className="hover:bg-slate-800/40 transition-colors">
                               <td className="p-4">
                                 <div className="flex items-center gap-2.5">
                                   <div className="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center text-white font-bold text-xs shrink-0">
@@ -998,8 +1029,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             এই ইউজারের কোনো সংরক্ষিত চ্যাট সেশন নেই।
                           </div>
                         ) : (
-                          Object.values(selectedUserChats.chats).map((session) => (
-                            <div key={session.id} className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+                          Object.values(selectedUserChats.chats).map((session, sIdx) => (
+                            <div key={session.id ? `adm_sess_${session.id}` : `adm_sess_idx_${sIdx}`} className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
                               <div className="flex items-center justify-between text-xs font-bold text-indigo-300 pb-2 border-b border-slate-800/60">
                                 <span>{session.title || "নামবিহীন সেশন"}</span>
                                 <span className="text-[10px] text-slate-500 font-mono">
@@ -1008,9 +1039,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               </div>
 
                               <div className="space-y-2">
-                                {session.messages?.map((msg) => (
+                                {session.messages?.map((msg, mIdx) => (
                                   <div
-                                    key={msg.id}
+                                    key={msg.id ? `adm_sess_msg_${msg.id}` : `adm_sess_msg_idx_${mIdx}`}
                                     className={`p-2.5 rounded-xl text-xs ${
                                       msg.sender === "user"
                                         ? "bg-slate-900 text-slate-200 border border-slate-800"
@@ -1276,7 +1307,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                   <div className="space-y-3">
                     {helpItems.map((item, idx) => (
-                      <div key={item.id} className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+                      <div key={item.id ? `adm_help_${item.id}` : `adm_help_idx_${idx}`} className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
                         <div className="flex items-center justify-between gap-2">
                           <input
                             type="text"
@@ -1435,8 +1466,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs rounded-2xl p-2.5 outline-none"
                         >
                           <option value="">-- ইউজার বেছে নিন --</option>
-                          {allUsers.map((u) => (
-                            <option key={u.uid} value={u.uid}>
+                          {allUsers.map((u, uIdx) => (
+                            <option key={u.uid ? `adm_sel_u_${u.uid}` : `adm_sel_u_${uIdx}`} value={u.uid}>
                               {u.displayName} ({u.email})
                             </option>
                           ))}
@@ -1479,10 +1510,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       {notifications.length === 0 ? (
                         <p className="text-xs text-slate-500 text-center py-10">কোনো নোটিফিকেশন হিস্টোরি নেই</p>
                       ) : (
-                        notifications.map((notif) => {
+                        notifications.map((notif, nIdx) => {
                           const readCount = notif.readBy ? Object.keys(notif.readBy).length : 0;
                           return (
-                            <div key={notif.id} className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2 relative group">
+                            <div key={notif.id ? `adm_notif_${notif.id}` : `adm_notif_idx_${nIdx}`} className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2 relative group">
                               <div className="flex items-start justify-between gap-2">
                                 <div className="space-y-0.5">
                                   <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-900 text-cyan-400 border border-slate-800">
@@ -1540,6 +1571,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             {activeTab === "voice_files" && (
               <div className="space-y-6 animate-in fade-in duration-150">
                 <AdminVoiceAndFiles />
+              </div>
+            )}
+
+            {/* TAB: AI BRANDING, DESIGN & COLOR CUSTOMIZATION */}
+            {activeTab === "branding" && (
+              <div className="space-y-6 animate-in fade-in duration-150">
+                <AdminBranding />
               </div>
             )}
 

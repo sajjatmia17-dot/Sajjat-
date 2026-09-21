@@ -168,13 +168,13 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
               </p>
             </div>
           ) : (
-            userNotifications.map((notif) => {
+            userNotifications.map((notif, nIdx) => {
               const isRead = getIsRead(notif);
               const typeDetails = getTypeDetails(notif.type);
 
               return (
                 <div
-                  key={notif.id}
+                  key={notif.id ? `user_notif_${notif.id}` : `user_notif_idx_${nIdx}`}
                   onClick={() => handleNotificationClick(notif)}
                   className={`p-4 rounded-2xl border transition-all cursor-pointer ${
                     isRead

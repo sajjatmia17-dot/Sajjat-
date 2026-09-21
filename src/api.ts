@@ -22,6 +22,8 @@ export interface GenerateImageParams {
   prompt: string;
   aspectRatio?: '1:1' | '16:9' | '9:16';
   style?: string;
+  engine?: string;
+  customApiKey?: string;
 }
 
 export interface GenerateImageResponse {
@@ -31,41 +33,17 @@ export interface GenerateImageResponse {
   prompt?: string;
   refinedPrompt?: string;
   caption?: string;
+  model?: string;
+  aspectRatio?: string;
   error?: string;
 }
 
-function generateClientFallbackImage(params: GenerateImageParams): GenerateImageResponse {
-  const { prompt, aspectRatio = "1:1", style } = params;
-  const seed = Math.floor(Math.random() * 1000000);
-  const width = aspectRatio === "16:9" ? 1280 : aspectRatio === "9:16" ? 720 : 1024;
-  const height = aspectRatio === "16:9" ? 720 : aspectRatio === "9:16" ? 1280 : 1024;
-
-  let refined = prompt.trim();
-  if (style) {
-    refined += `, ${style} style, ultra detailed, photorealistic, 8k resolution`;
-  } else {
-    refined += `, photorealistic, 8k resolution, cinematic lighting, sharp focus`;
-  }
-
-  const directUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(
-    refined
-  )}?width=${width}&height=${height}&model=flux&nologo=true&seed=${seed}`;
-
-  return {
-    success: true,
-    imageUrl: directUrl,
-    directUrl,
-    prompt,
-    refinedPrompt: refined,
-    caption: `আমি আপনার অনুরোধ অনুযায়ী "${prompt}"-এর চমৎকার একটি ছবি তৈরি করেছি!`,
-  };
-}
-
 export async function generateAiImageApi(params: GenerateImageParams): Promise<GenerateImageResponse> {
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
+  const controller = new AbortController();
+  // 60s timeout for genuine Gemini image generation
+  const timeoutId = setTimeout(() => controller.abort(), 60000);
 
+  try {
     const res = await fetch("/api/generate-image", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -75,27 +53,27 @@ export async function generateAiImageApi(params: GenerateImageParams): Promise<G
     clearTimeout(timeoutId);
 
     const contentType = res.headers.get("content-type") || "";
-    // If the server or proxy returned HTML (e.g. 504 / 502 / SPA HTML fallback), don't crash on res.json()
     if (!contentType.includes("application/json")) {
-      return generateClientFallbackImage(params);
-    }
-
-    if (!res.ok) {
-      const errJson = await res.json().catch(() => ({}));
-      if (errJson?.error) {
-        throw new Error(errJson.error);
-      }
-      return generateClientFallbackImage(params);
+      const rawText = await res.text().catch(() => "");
+      throw new Error(rawText || `সার্ভার থেকে ত্রুটি এসেছে (স্ট্যাটাস: ${res.status})`);
     }
 
     const data = await res.json();
-    if (!data || (!data.imageUrl && !data.directUrl)) {
-      return generateClientFallbackImage(params);
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || "ছবি তৈরি করতে সমস্যা হয়েছে। দয়া করে আবার চেষ্টা করুন।");
     }
+
+    if (!data.imageUrl && !data.directUrl) {
+      throw new Error(data.error || "মডেল থেকে কোনো ছবি পাওয়া যায়নি।");
+    }
+
     return data;
   } catch (err: any) {
-    console.warn("Using client-side fallback image generator:", err?.message);
-    return generateClientFallbackImage(params);
+    clearTimeout(timeoutId);
+    if (err?.name === "AbortError") {
+      throw new Error("ছবি তৈরির রিকোয়েস্টের সময় শেষ হয়েছে (Timeout)। দয়া করে আবার চেষ্টা করুন।");
+    }
+    throw err;
   }
 }
 

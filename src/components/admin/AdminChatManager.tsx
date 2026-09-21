@@ -183,7 +183,7 @@ export const AdminChatManager: React.FC<AdminChatManagerProps> = ({ users, onDel
                   const isUser = msg.sender === "user";
                   return (
                     <div
-                      key={idx}
+                      key={msg.id ? `adm_msg_${msg.id}` : `adm_msg_${idx}`}
                       className={`flex gap-3 ${isUser ? "justify-end" : "justify-start"}`}
                     >
                       {!isUser && (

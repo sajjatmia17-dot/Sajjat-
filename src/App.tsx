@@ -25,7 +25,8 @@ import {
   AttachedFile, 
   GeminiModelId,
   AppNotification,
-  AppContentConfig
+  AppContentConfig,
+  SystemSettingsConfig
 } from "./types";
 import { 
   auth, 
@@ -38,6 +39,7 @@ import {
   subscribeToAppContent,
   subscribeToAdminAISettings,
   subscribeToBooks,
+  subscribeToSystemSettings,
   isAdmin
 } from "./firebase";
 import { getPersonalAnswer, generateClientFallbackReply } from "./knowledge";
@@ -66,6 +68,7 @@ export default function App() {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [appContent, setAppContent] = useState<AppContentConfig | null>(null);
   const [availableBooks, setAvailableBooks] = useState<BookItem[]>([]);
+  const [systemSettings, setSystemSettings] = useState<SystemSettingsConfig | null>(null);
 
   // Sajjat AI Model Preference (uses real gemini models under the hood, default: gemini-3.8-flash)
   const [selectedModel, setSelectedModel] = useState<GeminiModelId>(() => {
@@ -179,10 +182,17 @@ export default function App() {
       setAvailableBooks(booksList || []);
     });
 
+    const unsubSettings = subscribeToSystemSettings((settings) => {
+      if (settings) {
+        setSystemSettings(settings);
+      }
+    });
+
     return () => {
       unsubContent();
       unsubAi();
       unsubBooks();
+      unsubSettings();
     };
   }, []);
 
@@ -575,6 +585,7 @@ export default function App() {
         onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
         onNewChat={handleNewChat}
         onOpenAdmin={handleOpenAdminTrigger}
+        systemSettings={systemSettings}
       />
 
       {/* Main Body */}
@@ -606,6 +617,7 @@ export default function App() {
             onClearActiveChat={promptClearActiveChat}
             selectedModel={selectedModel}
             activeSessionTitle={activeSession?.title}
+            systemSettings={systemSettings}
           />
 
           <ChatInput
@@ -613,6 +625,7 @@ export default function App() {
             isLoading={isLoading}
             onOpenImageGenerator={() => setModalType("image_generator")}
             onOpenLiveVoice={() => setModalType("live_voice")}
+            systemSettings={systemSettings}
           />
         </main>
       </div>
@@ -624,6 +637,7 @@ export default function App() {
         onSendToChat={(promptText) => {
           handleSendMessage(promptText);
         }}
+        systemSettings={systemSettings}
       />
 
       {/* Settings Modal (Includes Model Selection & Theme) */}
@@ -649,6 +663,7 @@ export default function App() {
         onClose={() => setModalType("none")}
         user={user}
         onAddExchangeToChat={handleAddExchangeToChat}
+        systemSettings={systemSettings}
       />
 
       {/* Notifications Modal */}

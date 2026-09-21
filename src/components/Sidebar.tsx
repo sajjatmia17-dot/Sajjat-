@@ -143,11 +143,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </p>
             </div>
           ) : (
-            filteredSessions.map((session) => {
+            filteredSessions.map((session, sIdx) => {
               const isActive = session.id === activeSessionId;
               return (
                 <div
-                  key={session.id}
+                  key={session.id ? `sidebar_sess_${session.id}` : `sidebar_sess_idx_${sIdx}`}
                   onClick={() => {
                     onSelectSession(session.id);
                     if (window.innerWidth < 1024) onClose();

@@ -20,11 +20,22 @@ import {
   Sparkles,
   Settings,
   Radio,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Star
 } from "lucide-react";
-import { ChatMessage, UserProfile, ModalType, GeminiModelId, AVAILABLE_MODELS } from "../types";
+import { ChatMessage, UserProfile, ModalType, GeminiModelId, AVAILABLE_MODELS, SystemSettingsConfig } from "../types";
 import { playAiVoice, stopAiVoice } from "../utils/audioPlayer";
 import { GeneratedImageCard } from "./GeneratedImageCard";
+
+const THEME_GRADIENTS: Record<string, string> = {
+  indigo: "from-indigo-600 via-purple-600 to-cyan-400",
+  cyan: "from-cyan-400 via-teal-400 to-blue-500",
+  emerald: "from-emerald-400 via-teal-500 to-cyan-500",
+  violet: "from-fuchsia-500 via-purple-600 to-indigo-500",
+  rose: "from-rose-500 via-pink-500 to-orange-400",
+  amber: "from-amber-400 via-yellow-500 to-orange-500",
+  blue: "from-blue-500 via-sky-400 to-indigo-500",
+};
 
 // Dedicated Code Block component with copy functionality
 const CodeBlock: React.FC<{ language?: string; codeString: string }> = ({ language, codeString }) => {
@@ -148,6 +159,7 @@ interface ChatAreaProps {
   onClearActiveChat?: () => void;
   selectedModel: GeminiModelId;
   activeSessionTitle?: string;
+  systemSettings?: SystemSettingsConfig | null;
 }
 
 export const ChatArea: React.FC<ChatAreaProps> = ({
@@ -160,12 +172,37 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   onClearActiveChat,
   selectedModel,
   activeSessionTitle,
+  systemSettings,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [speakingId, setSpeakingId] = useState<string | null>(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
+
+  const brandName = systemSettings?.aiBrandName || "Sajjat AI";
+  const creatorName = systemSettings?.creatorName || "Sajjat Mia";
+  const activeThemeColor = systemSettings?.aiThemeColor || "indigo";
+  const themeGradient = THEME_GRADIENTS[activeThemeColor] || THEME_GRADIENTS.indigo;
+  const welcomeTitle = systemSettings?.aiWelcomeTitle || `স্বাগতম! আমি ${brandName}`;
+  const welcomeSubtitle = systemSettings?.aiWelcomeSubtitle || `আমাকে তৈরি করেছেন ${creatorName} মানুষের সেবার জন্য। পড়াশোনা, গণিত, বিজ্ঞান, প্রযুক্তি, কোডিং বা যেকোনো প্রশ্নের দ্রুত ও নির্ভুল উত্তরের জন্য আমাকে প্রশ্ন করুন।`;
+
+  const renderAvatarIcon = (size: "sm" | "lg" = "sm") => {
+    const cls = size === "lg" ? "w-9 h-9 text-indigo-400 animate-pulse" : "w-4 h-4";
+    switch (systemSettings?.aiAvatarIcon) {
+      case "brain":
+        return <BrainCircuit className={cls} />;
+      case "zap":
+        return <Zap className={cls} />;
+      case "sparkles":
+        return <Sparkles className={cls} />;
+      case "star":
+        return <Star className={cls} />;
+      case "bot":
+      default:
+        return <Bot className={cls} />;
+    }
+  };
 
   const currentModelInfo = AVAILABLE_MODELS.find((m) => m.id === selectedModel) || AVAILABLE_MODELS[0];
 
@@ -296,9 +333,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           <div className="max-w-2xl mx-auto py-8 md:py-14 flex flex-col items-center text-center">
             {/* Logo Badge */}
             <div className="relative mb-5">
-              <div className="w-18 h-18 rounded-3xl bg-gradient-to-tr from-indigo-600 via-purple-600 to-cyan-500 p-0.5 shadow-xl shadow-indigo-500/25 flex items-center justify-center">
+              <div className={`w-18 h-18 rounded-3xl bg-gradient-to-tr ${themeGradient} p-0.5 shadow-xl shadow-indigo-500/25 flex items-center justify-center`}>
                 <div className="w-full h-full bg-slate-900 rounded-[22px] flex items-center justify-center">
-                  <Bot className="w-9 h-9 text-indigo-400 animate-pulse" />
+                  {renderAvatarIcon("lg")}
                 </div>
               </div>
               <span className="absolute -bottom-1 -right-1 px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-[10px] font-bold">
@@ -307,18 +344,18 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             </div>
 
             <h2 className="text-2xl sm:text-3xl font-extrabold text-white mb-2 tracking-tight">
-              স্বাগতম! আমি <span className="bg-gradient-to-r from-cyan-400 via-indigo-300 to-purple-400 bg-clip-text text-transparent">Sajjat AI</span>
+              {welcomeTitle}
             </h2>
             
             <p className="text-xs sm:text-sm text-slate-300 max-w-lg mb-6 leading-relaxed">
-              আমাকে তৈরি করেছেন <span className="text-cyan-300 font-semibold">Sajjat Mia</span> মানুষের সেবার জন্য। পড়াশোনা, গণিত, বিজ্ঞান, প্রযুক্তি, কোডিং বা যেকোনো প্রশ্নের দ্রুত ও নির্ভুল উত্তরের জন্য আমাকে প্রশ্ন করুন।
+              {welcomeSubtitle}
             </p>
 
             {/* Quick Suggestion Cards */}
             <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-left mb-4">
               {suggestionChips.map((chip, idx) => (
                 <button
-                  key={idx}
+                  key={`suggestion_chip_${idx}_${chip.title}`}
                   onClick={() => onSendPrompt(chip.prompt)}
                   className="p-3 rounded-2xl bg-slate-900/90 hover:bg-slate-850 border border-slate-800/80 hover:border-indigo-500/40 transition-all group flex items-start gap-3 text-left shadow-sm active:scale-[0.98]"
                 >
@@ -354,14 +391,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           </div>
         ) : (
           <div className="max-w-3xl mx-auto space-y-5">
-            {messages.map((msg) => {
+            {messages.map((msg, idx) => {
               const isUser = msg.sender === "user";
               const isSpeaking = speakingId === msg.id;
               const isCopied = copiedId === msg.id;
 
               return (
                 <div
-                  key={msg.id}
+                  key={msg.id ? `msg_${msg.id}` : `msg_fallback_${idx}_${msg.timestamp || Date.now()}`}
                   className={`group/msg flex gap-3 md:gap-4 ${
                     isUser ? "flex-row-reverse" : "flex-row"
                   }`}
@@ -373,8 +410,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                         {user?.displayName ? user.displayName[0].toUpperCase() : <UserIcon className="w-4 h-4" />}
                       </div>
                     ) : (
-                      <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-600 via-purple-600 to-cyan-500 flex items-center justify-center text-white shadow-md shadow-indigo-500/20">
-                        <Bot className="w-4 h-4" />
+                      <div className={`w-8 h-8 rounded-xl bg-gradient-to-tr ${themeGradient} flex items-center justify-center text-white shadow-md shadow-indigo-500/20`}>
+                        {renderAvatarIcon("sm")}
                       </div>
                     )}
                   </div>
@@ -388,7 +425,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                     {/* Header info */}
                     <div className="flex items-center gap-2 mb-1 px-1">
                       <span className="text-[11px] font-semibold text-slate-300">
-                        {isUser ? (user?.displayName || "আপনি") : "Sajjat AI"}
+                        {isUser ? (user?.displayName || "আপনি") : brandName}
                       </span>
                       {msg.isPersonalQA && (
                         <span className="text-[9px] bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 px-1.5 py-0.2 rounded-full font-medium">

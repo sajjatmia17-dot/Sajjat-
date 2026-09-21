@@ -297,8 +297,8 @@ export const AdminBookLibrary: React.FC<AdminBookLibraryProps> = ({ onPreviewBoo
               className="w-full px-3.5 py-2 bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 rounded-xl text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-amber-500"
             >
               <option value="all">সব শ্রেণি (All Classes)</option>
-              {CLASSES.map((c) => (
-                <option key={c} value={c}>{c}</option>
+              {CLASSES.map((c, idx) => (
+                <option key={`adm_filter_c_${c}_${idx}`} value={c}>{c}</option>
               ))}
             </select>
           </div>
@@ -310,8 +310,8 @@ export const AdminBookLibrary: React.FC<AdminBookLibraryProps> = ({ onPreviewBoo
               className="w-full px-3.5 py-2 bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 rounded-xl text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-amber-500"
             >
               <option value="all">সব বিষয় (All Subjects)</option>
-              {SUBJECTS.map((s) => (
-                <option key={s} value={s}>{s}</option>
+              {SUBJECTS.map((s, idx) => (
+                <option key={`adm_filter_s_${s}_${idx}`} value={s}>{s}</option>
               ))}
             </select>
           </div>
@@ -329,9 +329,9 @@ export const AdminBookLibrary: React.FC<AdminBookLibraryProps> = ({ onPreviewBoo
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredBooks.map((book) => (
+          {filteredBooks.map((book, bIdx) => (
             <div
-              key={book.id}
+              key={book.id ? `adm_book_${book.id}` : `adm_book_idx_${bIdx}`}
               className={`bg-white dark:bg-zinc-900 border rounded-2xl p-5 shadow-sm transition-all hover:shadow-md flex flex-col justify-between ${
                 book.enabled
                   ? "border-zinc-200 dark:border-zinc-800"
@@ -495,8 +495,8 @@ export const AdminBookLibrary: React.FC<AdminBookLibraryProps> = ({ onPreviewBoo
                     onChange={(e) => setBookClass(e.target.value)}
                     className="w-full px-3.5 py-2 bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 rounded-xl text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-amber-500"
                   >
-                    {CLASSES.map((c) => (
-                      <option key={c} value={c}>{c}</option>
+                    {CLASSES.map((c, idx) => (
+                      <option key={`adm_modal_c_${c}_${idx}`} value={c}>{c}</option>
                     ))}
                   </select>
                 </div>
@@ -511,8 +511,8 @@ export const AdminBookLibrary: React.FC<AdminBookLibraryProps> = ({ onPreviewBoo
                     onChange={(e) => setSubject(e.target.value)}
                     className="w-full px-3.5 py-2 bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 rounded-xl text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-amber-500"
                   >
-                    {SUBJECTS.map((s) => (
-                      <option key={s} value={s}>{s}</option>
+                    {SUBJECTS.map((s, idx) => (
+                      <option key={`adm_modal_s_${s}_${idx}`} value={s}>{s}</option>
                     ))}
                   </select>
                 </div>

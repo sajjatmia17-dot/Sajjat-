@@ -9,9 +9,12 @@ import {
   CheckCircle2,
   Sparkles,
   Bell,
-  ShieldCheck
+  ShieldCheck,
+  BrainCircuit,
+  Zap,
+  Star
 } from "lucide-react";
-import { UserProfile, ModalType } from "../types";
+import { UserProfile, ModalType, SystemSettingsConfig } from "../types";
 
 interface HeaderProps {
   user: UserProfile | null;
@@ -20,7 +23,18 @@ interface HeaderProps {
   onToggleSidebar: () => void;
   onNewChat: () => void;
   onOpenAdmin?: () => void;
+  systemSettings?: SystemSettingsConfig | null;
 }
+
+const THEME_GRADIENTS: Record<string, string> = {
+  indigo: "from-indigo-600 via-purple-600 to-cyan-400",
+  cyan: "from-cyan-400 via-teal-400 to-blue-500",
+  emerald: "from-emerald-400 via-teal-500 to-cyan-500",
+  violet: "from-fuchsia-500 via-purple-600 to-indigo-500",
+  rose: "from-rose-500 via-pink-500 to-orange-400",
+  amber: "from-amber-400 via-yellow-500 to-orange-500",
+  blue: "from-blue-500 via-sky-400 to-indigo-500",
+};
 
 export const Header: React.FC<HeaderProps> = ({
   user,
@@ -29,6 +43,7 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleSidebar,
   onNewChat,
   onOpenAdmin,
+  systemSettings,
 }) => {
   const [tapCount, setTapCount] = useState(0);
   const tapTimeoutRef = useRef<any>(null);
@@ -56,6 +71,26 @@ export const Header: React.FC<HeaderProps> = ({
     }, 2500);
   };
 
+  const activeThemeColor = systemSettings?.aiThemeColor || "indigo";
+  const themeGradient = THEME_GRADIENTS[activeThemeColor] || THEME_GRADIENTS.indigo;
+  const brandName = systemSettings?.aiBrandName || "Sajjat AI";
+
+  const renderAvatarIcon = () => {
+    switch (systemSettings?.aiAvatarIcon) {
+      case "brain":
+        return <BrainCircuit className="w-5 h-5 text-indigo-400 group-hover:text-cyan-300 transition-colors" />;
+      case "zap":
+        return <Zap className="w-5 h-5 text-indigo-400 group-hover:text-cyan-300 transition-colors" />;
+      case "sparkles":
+        return <Sparkles className="w-5 h-5 text-indigo-400 group-hover:text-cyan-300 transition-colors" />;
+      case "star":
+        return <Star className="w-5 h-5 text-indigo-400 group-hover:text-cyan-300 transition-colors" />;
+      case "bot":
+      default:
+        return <Bot className="w-5 h-5 text-indigo-400 group-hover:text-cyan-300 transition-colors" />;
+    }
+  };
+
   return (
     <header className="h-15 border-b border-slate-800/80 bg-slate-900/95 backdrop-blur-md px-3 sm:px-4 flex items-center justify-between sticky top-0 z-30 transition-colors">
       {/* Left: Sidebar ☰ Toggle & Logo / Name */}
@@ -73,12 +108,12 @@ export const Header: React.FC<HeaderProps> = ({
         <div 
           onClick={handleLogoTap}
           className="flex items-center gap-2.5 sm:gap-3 cursor-pointer select-none group relative active:scale-95 transition-transform shrink-0"
-          title="Sajjat AI"
+          title={brandName}
         >
           <div className="relative shrink-0">
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-gradient-to-tr from-indigo-600 via-purple-600 to-cyan-400 p-0.5 shadow-md shadow-indigo-500/20 flex items-center justify-center group-hover:shadow-indigo-500/40 transition-shadow">
+            <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-gradient-to-tr ${themeGradient} p-0.5 shadow-md shadow-indigo-500/20 flex items-center justify-center group-hover:shadow-indigo-500/40 transition-shadow`}>
               <div className="w-full h-full bg-slate-900 rounded-[14px] flex items-center justify-center">
-                <Bot className="w-5 h-5 text-indigo-400 group-hover:text-cyan-300 transition-colors" />
+                {renderAvatarIcon()}
               </div>
             </div>
             <span 
@@ -89,10 +124,7 @@ export const Header: React.FC<HeaderProps> = ({
 
           <div className="flex items-center gap-1.5">
             <h1 className="text-lg sm:text-xl font-bold tracking-tight text-white flex items-center leading-none whitespace-nowrap">
-              <span className="font-semibold text-slate-100">Sajjat</span>
-              <span className="ml-1 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-purple-400 to-cyan-400 font-black">
-                AI
-              </span>
+              <span>{brandName}</span>
             </h1>
             {tapCount >= 3 && (
               <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse">

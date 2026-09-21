@@ -100,7 +100,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, appConten
             </h4>
 
             {items.map((item, idx) => (
-              <div key={item.id || idx} className="p-3 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-1">
+              <div key={item.id ? `help_item_${item.id}` : `help_item_${idx}`} className="p-3 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-1">
                 <div className="flex items-center gap-2 font-bold text-slate-100">
                   <Sliders className="w-4 h-4 text-indigo-400" />
                   <span>{item.title}</span>

@@ -449,8 +449,8 @@ export const AdminApiProviders: React.FC<AdminApiProvidersProps> = ({ onProvider
                       className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-800/70 border border-zinc-200 dark:border-zinc-700 rounded-xl text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
                     />
                     <datalist id={`models-${provider.id}`}>
-                      {provider.supportedModels?.map((m) => (
-                        <option key={m} value={m} />
+                      {provider.supportedModels?.map((m, idx) => (
+                        <option key={`model_opt_${provider.id}_${m}_${idx}`} value={m} />
                       ))}
                     </datalist>
                   </div>

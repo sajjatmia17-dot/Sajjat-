@@ -110,11 +110,30 @@ export interface ApiProviderConfig {
 export interface SystemSettingsConfig {
   aiEnabled: boolean;
   voiceEnabled: boolean;
+  // 🎙️ Live Voice Chat Controls (Admin Managed)
   liveVoiceEnabled?: boolean;
-  imageGenerationEnabled?: boolean;
-  imageModelPreset?: "turbo" | "flux" | "sana";
-  imageGenerationNotice?: string;
   liveVoiceNotice?: string;
+  liveVoiceName?: string; // Zephyr, Kore, Puck, Charon, Fenrir, Aoede
+  liveVoiceSpeed?: string; // 0.8, 1.0, 1.2
+  liveVoiceInstruction?: string;
+
+  // 🖼️ AI Image Generator Controls (Admin Managed)
+  imageGenerationEnabled?: boolean;
+  imageModelPreset?: "gemini-3.1-flash-image" | "gemini-3.1-flash-lite-image" | "turbo" | "flux" | "sana" | string;
+  imageGenerationNotice?: string;
+  imageDefaultAspectRatio?: "1:1" | "16:9" | "9:16";
+  imageWatermarkEnabled?: boolean;
+  imageWatermarkText?: string;
+
+  // 🎨 AI Branding, Design & Color Customization (Admin Managed)
+  aiBrandName?: string; // e.g. "Sajjat AI"
+  aiTagline?: string;
+  aiThemeColor?: "indigo" | "emerald" | "violet" | "rose" | "cyan" | "amber" | "blue";
+  aiAvatarIcon?: "bot" | "brain" | "sparkles" | "zap" | "star";
+  aiWelcomeTitle?: string;
+  aiWelcomeSubtitle?: string;
+  creatorName?: string;
+
   imageUploadEnabled: boolean;
   fileUploadEnabled: boolean;
   chatHistoryEnabled: boolean;

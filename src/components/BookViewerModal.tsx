@@ -109,8 +109,8 @@ export const BookViewerModal: React.FC<BookViewerModalProps> = ({
               className="w-full px-3 py-2 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-amber-500"
             >
               <option value="all">সকল শ্রেণি (All Classes)</option>
-              {allClasses.map((c) => (
-                <option key={c} value={c}>{c}</option>
+              {allClasses.map((c, idx) => (
+                <option key={`book_cls_${c}_${idx}`} value={c}>{c}</option>
               ))}
             </select>
           </div>
@@ -122,8 +122,8 @@ export const BookViewerModal: React.FC<BookViewerModalProps> = ({
               className="w-full px-3 py-2 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-amber-500"
             >
               <option value="all">সকল বিষয় (All Subjects)</option>
-              {allSubjects.map((s) => (
-                <option key={s} value={s}>{s}</option>
+              {allSubjects.map((s, idx) => (
+                <option key={`book_subj_${s}_${idx}`} value={s}>{s}</option>
               ))}
             </select>
           </div>
@@ -139,9 +139,9 @@ export const BookViewerModal: React.FC<BookViewerModalProps> = ({
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {filtered.map((book) => (
+              {filtered.map((book, bIdx) => (
                 <div
-                  key={book.id}
+                  key={book.id ? `viewer_book_${book.id}` : `viewer_book_idx_${bIdx}`}
                   className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:border-amber-400 dark:hover:border-amber-600/60 rounded-2xl p-4 shadow-sm transition-all duration-200 flex flex-col justify-between group"
                 >
                   <div>

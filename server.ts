@@ -9,7 +9,9 @@ dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
-const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+// Port 3000 is required by the container reverse proxy architecture.
+// Never read process.env.PORT because Cloud Run sets PORT=8080 which conflicts with Nginx.
+const PORT = 3000;
 
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
@@ -625,11 +627,16 @@ app.post("/api/chat", async (req, res) => {
           reply: imageResult.caption || "আমি আপনার অনুরোধ অনুযায়ী আকর্ষণীয় একটি ছবি তৈরি করেছি! নিচে ছবিটি দেখুন।",
           generatedImageUrl: imageResult.imageUrl,
           generatedImagePrompt: imageResult.refinedPrompt || message,
-          model: "Sajjat AI Vision Generator",
+          model: `Sajjat AI (${imageResult.model || "gemini-3.1-flash-image"})`,
           timestamp: new Date().toISOString()
         });
-      } catch (imgErr) {
-        console.warn("Direct image generation attempt warning, continuing standard chat:", imgErr);
+      } catch (imgErr: any) {
+        console.warn("Direct image generation attempt warning:", imgErr?.message);
+        return res.json({
+          reply: `দুঃখিত, ছবিটি তৈরি করা সম্ভব হয়নি:\n\n${imgErr?.message || "Gemini Image Generation ত্রুটি"}`,
+          model: "Sajjat AI Assistant",
+          timestamp: new Date().toISOString()
+        });
       }
     }
 
@@ -1092,10 +1099,18 @@ function isImageGenerationIntent(text: string): boolean {
 // ----------------------------------------------------
 let serverSystemSettings = {
   liveVoiceEnabled: true,
-  liveVoiceNotice: "",
+  liveVoiceNotice: "লাইভ ভয়েস চ্যাট সাময়িকভাবে রক্ষণাবেক্ষণের জন্য বন্ধ রয়েছে।",
+  liveVoiceName: "Zephyr",
+  liveVoiceSpeed: "1.0",
+  liveVoiceInstruction: "",
   imageGenerationEnabled: true,
-  imageGenerationNotice: "",
-  imageModelPreset: "flux" as "flux" | "turbo" | "sana"
+  imageGenerationNotice: "ছবি তৈরি ফিচারটি বর্তমানে সাময়িক রক্ষণাবেক্ষণের কারণে স্থগিত রয়েছে।",
+  imageModelPreset: "flux" as "flux" | "turbo" | "sana",
+  imageWatermarkEnabled: true,
+  imageWatermarkText: "Sajjat AI",
+  aiBrandName: "Sajjat AI",
+  aiTagline: "মানুষের সেবায় নিবেদিত সর্বাধুনিক সুপার ইন্টেলিজেন্ট বাংলা এআই সহকারী",
+  aiThemeColor: "indigo"
 };
 
 // System Settings API endpoints for Admin Panel synchronization
@@ -1205,33 +1220,6 @@ const BENGALI_VISUAL_MAP: Record<string, string> = {
   "বাস্তব": "realistic authentic photo",
 };
 
-function enhancePromptLocally(subject: string, style?: string): string {
-  // Check for multi-word or single-word matches
-  let englishKeywords: string[] = [];
-  for (const [bnKey, enVal] of Object.entries(BENGALI_VISUAL_MAP)) {
-    if (subject.includes(bnKey)) {
-      englishKeywords.push(enVal);
-    }
-  }
-
-  const baseKeywords = englishKeywords.length > 0 ? englishKeywords.join(", ") : subject;
-  
-  let styleModifier = "realistic photograph, shot on 35mm lens, natural lighting, sharp focus, authentic, 4k resolution";
-  if (style === "anime") {
-    styleModifier = "anime studio art style, Makoto Shinkai aesthetic, vibrant colors, clean lines, 4k";
-  } else if (style === "cyberpunk") {
-    styleModifier = "cyberpunk neon aesthetic, futuristic cityscape, moody atmosphere, volumetric lighting";
-  } else if (style === "watercolor") {
-    styleModifier = "artistic watercolor painting, delicate brush strokes, soft textured paper effect";
-  } else if (style === "3d_render") {
-    styleModifier = "Pixar 3D animated style, soft subsurface scattering, vibrant expressive character, octane render";
-  } else if (style === "cinematic") {
-    styleModifier = "cinematic film still, dramatic rim lighting, shallow depth of field, authentic composition";
-  }
-
-  return `A realistic, highly detailed authentic photo of ${baseKeywords}, ${styleModifier}`;
-}
-
 // Clean user prompt to extract visual subject
 function cleanImagePromptSubject(rawPrompt: string): string {
   let p = rawPrompt.trim();
@@ -1241,97 +1229,162 @@ function cleanImagePromptSubject(rawPrompt: string): string {
   return p.trim() || rawPrompt.trim();
 }
 
-// Generate AI Image with Gemini Prompt Translation & Fast Multi-Engine Synthesis
+// Generate Native AI Image using official Google GenAI SDK (gemini-3.1-flash-image Nano Banana 2)
 async function generateAiImage(
   userPrompt: string,
   apiKey?: string,
   options: { aspectRatio?: string; style?: string; engine?: string } = {}
 ) {
+  const activeKey = apiKey?.trim() || serverProviderConfigs.gemini?.apiKey?.trim() || process.env.GEMINI_API_KEY?.trim() || "";
+
+  if (!activeKey) {
+    throw new Error("Gemini API Key পাওয়া যায়নি। দয়া করে সেটিংস বা এডমিন প্যানেলে আপনার Gemini API Key যুক্ত করুন।");
+  }
+
+  const ai = new GoogleGenAI({
+    apiKey: activeKey,
+    httpOptions: { headers: { "User-Agent": "aistudio-build" } },
+  });
+
   const subject = cleanImagePromptSubject(userPrompt);
-  const activeKey = apiKey || process.env.GEMINI_API_KEY || "";
 
-  // 1. Instantly construct high-quality local refined prompt as base
-  let refinedPrompt = enhancePromptLocally(subject, options.style);
-  let caption = `আমি আপনার অনুরোধ অনুযায়ী "${subject}"-এর চমৎকার একটি ছবি তৈরি করেছি! নিচে ছবিটি দেখুন।`;
+  // 1. Precise prompt understanding & bilingual translation using Gemini Text Model (gemini-3.8-flash)
+  // Preserves 100% of user intent for Bangla and English prompts (e.g. Map of Bangladesh, White Cat, House by the sea)
+  let visualPrompt = userPrompt;
+  let caption = `আমি আপনার অনুরোধ অনুযায়ী "${subject || userPrompt}"-এর বাস্তবসম্মত ছবি তৈরি করেছি।`;
 
-  // 2. If Gemini API key is available, use fast translation with 1500ms timeout
-  if (activeKey && activeKey.trim().length > 10 && !activeKey.includes("AQ.Ab8RN6Km")) {
-    try {
-      const ai = new GoogleGenAI({
-        apiKey: activeKey.trim(),
-        httpOptions: { headers: { "User-Agent": "aistudio-build" } },
-      });
-
-      const promptTranslateReq = `Translate and refine this image request for a realistic photo AI image generator.
-User prompt: "${userPrompt}"
-Subject: "${subject}"
-Selected style: "${options.style || "realistic photograph"}"
+  try {
+    const promptRefineInstruction = `You are an expert prompt translator and visual descriptor for the Gemini image generation model (gemini-3.1-flash-image).
+The user requested an image with this prompt (in Bengali or English):
+"${userPrompt}"
+Core Subject: "${subject}"
+Selected Artistic Style: "${options.style || "realistic photograph"}"
 
 Rules:
-1. "prompt": Output an accurate English description strictly capturing the exact subject, action, characters, objects, and environment requested by the user. Must be a genuine real photograph (natural lighting, authentic details, photorealistic 4k). Do not invent bizarre fantasy elements.
-2. "caption": A 1-sentence polite Bengali confirmation acknowledging the real picture created.
+1. ABSOLUTE SUBJECT INTEGRITY: Never alter, omit, or replace what the user requested.
+   - If the user asks for "বাংলাদেশের মানচিত্র তৈরি করুন" (Map of Bangladesh), describe a realistic, authentic 3D geographical map or satellite relief map of Bangladesh, showing its borders, river networks, green landscapes, and the Bay of Bengal. Never draw unrelated people or portraits.
+   - If the user asks for "একটি সাদা বিড়ালের ছবি তৈরি করুন" (A white cat), describe a realistic white cat with natural fur texture and soft lighting.
+   - If the user asks for "সমুদ্রের পাশে একটি আধুনিক বাড়ি তৈরি করুন" (Modern house by the sea), describe a modern architectural beach house by the ocean.
+2. Output a high-detail English visual description optimized for Gemini Image generation.
+3. Output a 1-sentence polite Bengali confirmation caption.
 
-Return ONLY a valid JSON object:
-{"prompt": "...", "caption": "..."}`;
+Return ONLY a JSON object:
+{
+  "visualPrompt": "Detailed English image generation prompt...",
+  "caption": "আমি আপনার অনুরোধ অনুযায়ী [বিষয়]-এর চমৎকার একটি বাস্তবসম্মত ছবি তৈরি করেছি।"
+}`;
 
-      // Fast 1500ms timeout so we NEVER keep user waiting
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Timeout")), 1500)
-      );
+    const refineRes = await ai.models.generateContent({
+      model: "gemini-3.8-flash",
+      contents: [{ role: "user", parts: [{ text: promptRefineInstruction }] }],
+      config: {
+        temperature: 0.2,
+        responseMimeType: "application/json",
+      },
+    });
 
-      const geminiPromise = ai.models.generateContent({
-        model: "gemini-3.5-flash-lite",
-        contents: [{ role: "user", parts: [{ text: promptTranslateReq }] }],
-        config: {
-          temperature: 0.6,
-          responseMimeType: "application/json"
-        },
-      });
-
-      const response = await Promise.race([geminiPromise, timeoutPromise]);
-      const responseText = response.text || "";
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        if (parsed.prompt && parsed.prompt.length > 5) {
-          refinedPrompt = parsed.prompt;
-        }
-        if (parsed.caption) {
-          caption = parsed.caption;
-        }
+    if (refineRes.text) {
+      const parsed = JSON.parse(refineRes.text);
+      if (parsed.visualPrompt && typeof parsed.visualPrompt === "string" && parsed.visualPrompt.trim().length > 5) {
+        visualPrompt = parsed.visualPrompt.trim();
       }
-    } catch {
-      // Gracefully use local high-quality enhanced prompt without hanging
+      if (parsed.caption && typeof parsed.caption === "string") {
+        caption = parsed.caption;
+      }
+    }
+  } catch (refineErr) {
+    console.warn("Prompt normalization fallback to direct prompt:", refineErr);
+    if (options.style && options.style !== "photorealistic") {
+      visualPrompt = `${userPrompt}, ${options.style} style, ultra detailed, 8k resolution`;
+    } else {
+      visualPrompt = `${userPrompt}, realistic authentic photography, natural lighting, sharp focus, 8k resolution`;
     }
   }
 
-  // Generate seed for diversity
-  const seed = Math.floor(Math.random() * 1000000);
-  
-  // Fast & high-definition resolutions for instant rendering:
-  // 1:1 -> 768x768 (Generates in ~800ms!)
-  // 16:9 -> 896x512 (Fast cinematic HD)
-  // 9:16 -> 512x896 (Fast portrait HD)
-  const width = options.aspectRatio === "16:9" ? 896 : options.aspectRatio === "9:16" ? 512 : 768;
-  const height = options.aspectRatio === "16:9" ? 512 : options.aspectRatio === "9:16" ? 896 : 768;
-  
-  const chosenModel = options.engine || serverSystemSettings.imageModelPreset || "flux";
+  // 2. Map Aspect Ratio to Gemini Image API supported format
+  let mappedAspectRatio: "1:1" | "16:9" | "9:16" | "4:3" | "3:4" = "1:1";
+  if (options.aspectRatio === "16:9") mappedAspectRatio = "16:9";
+  else if (options.aspectRatio === "9:16") mappedAspectRatio = "9:16";
+  else if (options.aspectRatio === "4:3") mappedAspectRatio = "4:3";
+  else if (options.aspectRatio === "3:4") mappedAspectRatio = "3:4";
 
-  const directUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(
-    refinedPrompt
-  )}?width=${width}&height=${height}&model=${chosenModel}&nologo=true&seed=${seed}`;
+  // 3. Generate image using Gemini Native Image Generation model
+  // Supported native models: gemini-3.1-flash-image (Nano Banana 2) prioritized, gemini-3.1-flash-lite-image as secondary
+  const imageModels = [
+    "gemini-3.1-flash-image",
+    "gemini-3.1-flash-lite-image"
+  ];
 
-  const proxyUrl = `/api/image-proxy?url=${encodeURIComponent(directUrl)}`;
+  let lastError: any = null;
 
-  return {
-    imageUrl: proxyUrl,
-    directUrl,
-    prompt: userPrompt,
-    subject,
-    refinedPrompt,
-    caption,
-    seed,
-  };
+  for (const modelName of imageModels) {
+    try {
+      console.log(`[Gemini Image Generation] Calling model: ${modelName} with prompt: "${visualPrompt.slice(0, 80)}..."`);
+      const response = await ai.models.generateContent({
+        model: modelName,
+        contents: {
+          parts: [{ text: visualPrompt }]
+        },
+        config: {
+          imageConfig: {
+            aspectRatio: mappedAspectRatio,
+            imageSize: "1K"
+          }
+        }
+      });
+
+      const candidates = response.candidates || [];
+      for (const cand of candidates) {
+        for (const part of cand.content?.parts || []) {
+          if (part.inlineData?.data) {
+            const mimeType = part.inlineData.mimeType || "image/png";
+            const base64Data = part.inlineData.data;
+            const dataUrl = `data:${mimeType};base64,${base64Data}`;
+
+            console.log(`[Gemini Image Generation] Success with ${modelName}! Image size: ${base64Data.length} bytes`);
+            return {
+              imageUrl: dataUrl,
+              directUrl: dataUrl,
+              prompt: userPrompt,
+              refinedPrompt: visualPrompt,
+              caption: caption,
+              model: modelName,
+              aspectRatio: mappedAspectRatio,
+            };
+          }
+        }
+      }
+    } catch (err: any) {
+      lastError = err;
+      console.warn(`[Gemini Image Generation] Model ${modelName} error:`, err?.message || err);
+      // Try next supported image model
+    }
+  }
+
+  // If failed, formulate transparent and helpful error message
+  const rawMsg = lastError?.message || String(lastError || "");
+  console.error("[Gemini Image Generation] All native models failed:", rawMsg);
+
+  if (
+    rawMsg.includes("RESOURCE_EXHAUSTED") ||
+    rawMsg.includes("Quota exceeded") ||
+    rawMsg.includes("limit: 0") ||
+    rawMsg.includes("429")
+  ) {
+    throw new Error(
+      "Gemini Image Generation Model (gemini-3.1-flash-image) ব্যবহারের জন্য পেইড টিয়ার (Pay-as-you-go) সক্রিয় Gemini API Key প্রয়োজন। Google-এর ফ্রি টিয়ারে ইমেজ মডেলের কোটা ০ (Free tier limit: 0)। দয়া করে Google AI Studio বা Cloud Console-এ বিলিং অন করা প্রজেক্টের API Key সেটিংস বা এডমিনে যুক্ত করুন।"
+    );
+  }
+
+  if (rawMsg.includes("API_KEY_INVALID") || rawMsg.includes("API key not valid") || rawMsg.includes("403")) {
+    throw new Error("প্রদত্ত Gemini API Key সঠিক নয় বা এতে অনুমতি নেই। দয়া করে সঠিক Gemini API Key প্রদান করুন।");
+  }
+
+  if (rawMsg.includes("SAFETY") || rawMsg.includes("HARM_CATEGORY") || rawMsg.includes("blocked")) {
+    throw new Error("Google Safety Guidelines অনুযায়ী এই ছবির প্রম্পটটি জেনারেট করা সম্ভব হয়নি। দয়া করে ভিন্ন শব্দ ব্যবহার করুন।");
+  }
+
+  throw new Error(`Gemini ছবি তৈরি ব্যর্থ হয়েছে: ${rawMsg || "মডেল থেকে কোনো ছবি পাওয়া যায়নি।"}`);
 }
 
 // Image Proxy Endpoint (Provides CORS-free access and fast caching for canvas watermarking)
@@ -1380,13 +1433,24 @@ app.get("/api/image-proxy", async (req, res) => {
 // Dedicated Image Generation API
 app.post("/api/generate-image", async (req, res) => {
   try {
-    const { prompt, aspectRatio, style } = req.body || {};
+    if (!serverSystemSettings.imageGenerationEnabled) {
+      return res.status(403).json({
+        success: false,
+        error: serverSystemSettings.imageGenerationNotice || "ছবি তৈরি ফিচারটি বর্তমানে সাময়িক রক্ষণাবেক্ষণের কারণে স্থগিত রয়েছে।"
+      });
+    }
+
+    const { prompt, aspectRatio, style, engine } = req.body || {};
     if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
       return res.status(400).json({ error: "প্রম্পট দেওয়া আবশ্যক।" });
     }
 
     const activeKey = req.body?.customApiKey || serverProviderConfigs.gemini?.apiKey || process.env.GEMINI_API_KEY;
-    const result = await generateAiImage(prompt, activeKey, { aspectRatio, style });
+    const result = await generateAiImage(prompt, activeKey, { 
+      aspectRatio, 
+      style, 
+      engine: engine || serverSystemSettings.imageModelPreset 
+    });
 
     return res.json({
       success: true,
@@ -1442,7 +1506,19 @@ wss.on("connection", async (clientWs: WebSocket, request: http.IncomingMessage) 
     parsedUrl = new URL("http://localhost/api/live");
   }
 
-  const requestedVoice = parsedUrl.searchParams.get("voice") || "Zephyr";
+  // Check if live voice is enabled by admin
+  if (serverSystemSettings.liveVoiceEnabled === false) {
+    if (clientWs.readyState === WebSocket.OPEN) {
+      clientWs.send(JSON.stringify({
+        type: "error",
+        error: serverSystemSettings.liveVoiceNotice || "লাইভ ভয়েস চ্যাট সাময়িকভাবে অ্যাডমিন কর্তৃক বন্ধ রাখা হয়েছে।"
+      }));
+      clientWs.close();
+    }
+    return;
+  }
+
+  const requestedVoice = parsedUrl.searchParams.get("voice") || serverSystemSettings.liveVoiceName || "Zephyr";
   const customKey = parsedUrl.searchParams.get("key") || "";
   const activeApiKey = customKey || serverProviderConfigs.gemini?.apiKey || process.env.GEMINI_API_KEY;
 
@@ -1466,14 +1542,18 @@ wss.on("connection", async (clientWs: WebSocket, request: http.IncomingMessage) 
   let isClosed = false;
 
   try {
-    const liveVoiceSystemPrompt = `${SAJJAT_AI_SYSTEM_INSTRUCTION}
+    const customVoiceInstruction = serverSystemSettings.liveVoiceInstruction ? `${serverSystemSettings.liveVoiceInstruction}\n\n` : "";
+    const currentAiName = serverSystemSettings.aiBrandName || "Sajjat AI";
+    const currentCreator = "Sajjat Mia";
+
+    const liveVoiceSystemPrompt = `${customVoiceInstruction}${SAJJAT_AI_SYSTEM_INSTRUCTION}
 
 REAL-TIME TWO-WAY LIVE VOICE CONVERSATION DIRECTIVES:
 1. You are speaking directly with the user in a continuous, real-time live voice conversation.
 2. Keep your spoken answers concise, direct, natural, and conversational. Speak in simple, clear sentences.
 3. Default to fluent Bengali (বাংলা) or English matching whatever language the user speaks to you.
 4. Do NOT say markdown formatting like asterisks, hashtags, bullet points, or code tags. Speak naturally like a human assistant.
-5. If the user greets you (e.g. "হ্যালো", "হাই", "কেমন আছো?"), greet back warmly and concisely as Sajjat AI, created by Sajjat Mia.`;
+5. If the user greets you (e.g. "হ্যালো", "হাই", "কেমন আছো?"), greet back warmly and concisely as ${currentAiName}, created by ${currentCreator}.`;
 
     session = await liveAi.live.connect({
       model: "gemini-3.8-live",

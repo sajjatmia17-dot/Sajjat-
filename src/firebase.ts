@@ -491,7 +491,21 @@ export function subscribeToUserChats(uid: string, onUpdate: (sessions: ChatSessi
   return onValue(chatsRef, (snapshot) => {
     if (snapshot.exists()) {
       const data = snapshot.val();
-      const sessionList: ChatSession[] = Object.values(data);
+      const sessionList: ChatSession[] = Object.entries(data).map(([key, val]: [string, any]) => ({
+        ...val,
+        id: val.id || key,
+        messages: Array.isArray(val.messages)
+          ? val.messages.map((m: any, mIdx: number) => ({
+              ...m,
+              id: m.id || `msg_${mIdx}_${m.timestamp || Date.now()}`
+            }))
+          : val.messages
+          ? Object.entries(val.messages).map(([mKey, mV]: [string, any]) => ({
+              ...mV,
+              id: mV.id || mKey
+            }))
+          : []
+      }));
       // Sort newest first
       sessionList.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
       onUpdate(sessionList);
@@ -559,7 +573,10 @@ export function subscribeToBooks(onUpdate: (books: BookItem[]) => void) {
   return onValue(booksRef, (snapshot) => {
     if (snapshot.exists()) {
       const data = snapshot.val();
-      const booksList: BookItem[] = Object.values(data);
+      const booksList: BookItem[] = Object.entries(data).map(([key, val]: [string, any]) => ({
+        ...val,
+        id: val.id || key,
+      }));
       booksList.sort((a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0));
       onUpdate(booksList);
     } else {
@@ -782,17 +799,36 @@ export async function seedDefaultBooksIfEmpty(): Promise<void> {
 export const DEFAULT_SYSTEM_SETTINGS: SystemSettingsConfig = {
   aiEnabled: true,
   voiceEnabled: true,
+  // 🎙️ Live Voice Settings
   liveVoiceEnabled: true,
+  liveVoiceNotice: "লাইভ ভয়েস চ্যাট সাময়িকভাবে রক্ষণাবেক্ষণের জন্য বন্ধ রয়েছে। শীঘ্রই চালু হবে।",
+  liveVoiceName: "Zephyr",
+  liveVoiceSpeed: "1.0",
+  liveVoiceInstruction: "You are Sajjat AI, speaking fluently in natural Bengali or English. Keep your voice replies conversational, friendly, and concise.",
+
+  // 🖼️ Image Generation Settings
   imageGenerationEnabled: true,
-  imageModelPreset: "turbo",
-  imageGenerationNotice: "",
-  liveVoiceNotice: "",
+  imageModelPreset: "flux",
+  imageGenerationNotice: "ছবি তৈরি ফিচারটি বর্তমানে সাময়িক রক্ষণাবেক্ষণের কারণে স্থগিত রয়েছে।",
+  imageDefaultAspectRatio: "1:1",
+  imageWatermarkEnabled: true,
+  imageWatermarkText: "Sajjat AI",
+
+  // 🎨 Branding, Design & Color Settings
+  aiBrandName: "Sajjat AI",
+  aiTagline: "মানুষের সেবায় নিবেদিত সর্বাধুনিক সুপার ইন্টেলিজেন্ট বাংলা এআই সহকারী",
+  aiThemeColor: "indigo",
+  aiAvatarIcon: "bot",
+  aiWelcomeTitle: "স্বাগতম! আমি Sajjat AI",
+  aiWelcomeSubtitle: "আমাকে তৈরি করেছেন Sajjat Mia মানুষের সেবার জন্য। পড়াশোনা, গণিত, বিজ্ঞান, প্রযুক্তি বা যেকোনো প্রশ্নের দ্রুত ও নির্ভুল উত্তরের জন্য আমাকে প্রশ্ন করুন।",
+  creatorName: "Sajjat Mia",
+
   imageUploadEnabled: true,
   fileUploadEnabled: true,
   chatHistoryEnabled: true,
   notificationsEnabled: true,
   activeProvider: "gemini",
-  activeModel: "gemini-3.1-flash-lite",
+  activeModel: "gemini-3.8-flash",
   temperature: 0.7,
   systemInstruction: "",
   updatedAt: new Date().toISOString()
